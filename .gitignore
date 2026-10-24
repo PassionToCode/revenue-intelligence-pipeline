@@ -4,7 +4,4 @@ __pycache__/
 .venv/
 .env
 .DS_Store
-
-# Client data is NOT committed. See README "A note on the data".
-data/*
-!data/.gitkeep
+*.local

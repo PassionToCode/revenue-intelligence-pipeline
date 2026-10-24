@@ -3,29 +3,33 @@
 **Ask questions about invoice revenue and customers in plain English, and be
 able to check the answer.**
 
-> ### A note on the data — deliberately not committed
+> ### A note on the data, and a decision I reversed
 >
-> **The supplied dataset and the business-context briefing are not in this
-> repository, and that is on purpose.** The export contains account names,
-> billing contact email addresses and per-customer revenue. Even in a sample
-> that is personally identifiable information and commercially sensitive, and a
-> public repository is the wrong place for it.
+> **The client's name is kept out of the code, the specification and this
+> README on purpose.** The export carries account names, billing contact email
+> addresses and per-customer revenue — in a real engagement that is personally
+> identifiable and commercially sensitive, and a public repository is the wrong
+> place for it.
 >
-> The client's name has also been kept out of the code, the specification and
-> this README for the same reason.
+> **I first removed the dataset from the repository entirely, then put it
+> back.** Removing it meant continuous integration had nothing to run the
+> pipeline, the quality gate or the evals against, so the most valuable
+> evidence in the repository — that the gate actually passes on the real export
+> — could no longer be demonstrated. Since this is a supplied exercise dataset
+> for a fictional company, the exposure is nil and the evidence is worth more.
 >
-> **To run it, drop the two files in yourself:**
+> **In production the opposite call is the right one.** The data would not be
+> in version control at all: the CSV would arrive in object storage, the
+> pipeline would read it by path from configuration, and CI would run against a
+> small synthetic fixture that carries the same *shapes* — the dirty dates, the
+> currency symbols, the near-duplicates — and none of the real values.
+> `specs/ASSUMPTIONS.md` records this as the intended next step.
 >
-> | Put this file here | What it is |
-> |---|---|
-> | `data/invoices.csv` | the invoice export |
-> | `data/BUSINESS_CONTEXT.md` | the business briefing (reference only — the rules it describes are already encoded in `specs/contract.yaml`) |
+> Note also that `data/BUSINESS_CONTEXT.md` (the business briefing) is **not**
+> committed. Everything it specifies is already encoded in
+> `specs/contract.yaml`, which is what the code reads.
 >
-> `.gitignore` excludes `data/*.csv` so the data cannot be committed by accident.
-> Everything else — the contract, the pipeline, the evals, the CI — is here and
-> runs as soon as the CSV is in place.
->
-> The row counts and figures quoted below were measured on the supplied export.
+> Every figure quoted below was measured on the supplied export.
 
 The finance team exports its invoice ledger to a single CSV — about 5,125
 rows, stitched together from three systems that disagree with each other: an old
@@ -67,6 +71,81 @@ python evals\run_evals.py     # the eval harness: expected answers, and proof th
 ```
 
 ---
+
+## Verified output
+
+Both commands below were run against the supplied export. This is the real
+output, not a description of it -- and the same two commands run in CI on every
+push, so a reviewer does not have to take it on trust.
+
+### `python -m app` -- the pipeline and the quality gate
+
+```
+DATA-QUALITY GATE   contract 1.0.0
+  raw 5125 -> clean 5000, quarantined 2, duplicates 123
+  DQ01  raw_row_count                          >=         1        5125  PASS
+  DQ02  clean_row_count                        >=         1        5000  PASS
+  DQ03  quarantine_rate                        <=      0.15     0.00039  PASS
+  DQ04  duplicate_rate                         <=       0.1       0.024  PASS
+  DQ05  clean_pk_duplicate_count               ==         0           0  PASS
+  DQ06  revenue_reconciliation_abs_diff        <=      0.01           0  PASS
+  DQ07  negative_amount_outside_refunded_count ==         0           0  PASS
+  recognised revenue: clean 120147128.84 vs gold 120147128.84 (diff 0.00)
+  GATE PASSED - outputs are publishable.
+```
+
+Exit code **0**. Three numbers in there are worth a sentence each:
+
+- **5125 raw to 5000 clean** -- 123 duplicate invoice ids collapsed to one row
+  each, and 2 rows quarantined.
+- **2 quarantined, both for `negative_amount_on_non_refunded`** -- two invoices
+  carry a negative amount while their status normalises to `paid`. Only refunds
+  should be negative, so these are source defects. They are held back with a
+  named reason rather than silently reducing recognised revenue.
+- **DQ06 diff 0.00** -- recognised revenue computed from the cleaned table
+  equals the gold table to the cent. That is the check that catches a lost
+  filter or a join fan-out, which is the class of bug that survives review and
+  is then found by a finance team.
+
+### `python evals/run_evals.py` -- the eval harness
+
+```
+CASE                               QUESTION                                     EXPECT   ACTUAL   RESULT
+------------------------------------------------------------------------------------------------------------
+EV01_revenue_2024                  What was our total recognized revenue in ... pass     pass     PASS
+EV02_mrr_by_region                 Which region has the highest average MRR ... pass     pass     PASS
+EV03_refunds                       How much have we given back in refunds?      pass     pass     PASS
+EV04_churn_by_plan                 What's the churn rate among Enterprise ac... pass     pass     PASS
+EV05_top_accounts_csat             List the top 5 accounts by revenue, and f... pass     pass     PASS
+EV06_exposed_pipeline              How many invoices are stuck in pending or... pass     pass     PASS
+EV07_revenue_all_years             What is our total recognised revenue acro... pass     pass     PASS
+EV08_quarantine_contract           How much of this export was unusable, and... pass     pass     PASS
+EV09_out_of_scope_industry_growth  Which industry is growing fastest quarter... fail     fail     PASS
+------------------------------------------------------------------------------------------------------------
+SUMMARY  9/9 cases behaved as declared   |   gate PASS   |   1 expected-fail case(s)
+EXIT 0  (every case behaved as declared)
+```
+
+**EV09 is the case that is expected to fail, and it passing the harness is the
+point.** "Which industry is growing fastest quarter over quarter?" is outside
+the six intents: there is no industry gold table, and nothing in the contract
+defines "growth" -- revenue, MRR, seats and account count would each crown a
+different industry. The system **declines** instead of guessing. The harness
+treats that as correct behaviour, and would report a loud failure if it ever
+started answering, because a documented limitation would have stopped being
+true.
+
+### `python -m pytest evals -q` -- contract/code drift
+
+44 tests. They assert that every rule named in `specs/contract.yaml` exists in
+the code and vice versa, that every gold table and gate check the contract
+declares is implemented, and -- the one that keeps the contract honest -- that
+no FX rate, list price or threshold appears as a literal anywhere in `app/`.
+
+### `python -m app --demo` -- the single demo command
+
+Runs the pipeline, then answers all six stakeholder questions in sequence,
+printing the generated SQL above each answer.
 
 ## Why this approach, and not a document-search chatbot
 
