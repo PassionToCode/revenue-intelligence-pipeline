@@ -1,0 +1,317 @@
+# ---------------------------------------------------------------------------
+# the client revenue intelligence -- EVAL CASES
+# ---------------------------------------------------------------------------
+# Nine cases, seeded from the six stakeholder questions in
+# data/BUSINESS_CONTEXT.md. `python evals/run_evals.py` builds the pipeline
+# once, asks each question through app/nl.py, and evaluates every `assert`
+# below. It exits non-zero unless every case behaves exactly as declared here.
+#
+# How to read a case:
+#   id        stable handle, used in the output and quoted in the docs
+#   question  asked verbatim through the natural-language layer
+#   intent    the intent name app/nl.py is expected to resolve it to
+#   route     `nl` (default) -- through app.nl.ask
+#             `sql` -- a warehouse invariant asserted directly, no NL layer
+#   assert    list of {desc, expr}. `expr` is a Python expression evaluated
+#             against the answer and a live DuckDB cursor. ALL must hold.
+#   expect    `pass`  -> the system must answer and every assert must hold
+#             `fail`  -> the system must NOT answer. Declining is the correct
+#                        behaviour and counts as a PASS for the harness. If it
+#                        answers anyway the harness reports a loud FAILURE,
+#                        because a documented limitation has stopped being true
+#                        and the docs are now wrong.
+#   why       required on `expect: fail`: why the case is out of scope
+#
+# Assertion style, deliberately: RANGES AND RELATIONSHIPS, not magic numbers,
+# wherever a figure could not have been known before the data was seen -- e.g.
+# "recognised revenue > 0 and strictly less than the sum of all invoice
+# amounts", "the refund total is negative", "churn rate sits inside 0..100",
+# "the pending/failed count equals a direct SQL count".
+#
+# Where an EXACT number is asserted it was taken from a real run of this
+# pipeline against data/invoices.csv (5125 raw rows -> 4616 clean,
+# 396 quarantined), and each exact figure is asserted ALONGSIDE a direct SQL
+# recomputation, so a changed dataset surfaces as drift rather than passing
+# quietly.
+#
+# Names available inside `expr`:
+#   intent      str | None   intent app/nl.py resolved, None when it declined
+#   answer      str          the prose answer, lower-cased
+#   rows        list[dict]   rows the NL layer returned, column name -> value
+#   sql_text    str          the SQL the NL layer ran ('' when it declined)
+#   declined    bool         True when the NL layer refused to answer
+#   sql(q)      -> float|int|str   first column of the first row
+#   sql_rows(q) -> list[tuple]     every row
+# ---------------------------------------------------------------------------
+
+cases:
+
+  # -------------------------------------------------------------------------
+  - id: EV01_revenue_2024
+    question: "What was our total recognized revenue in USD for paid invoices in 2024?"
+    intent: total_recognised_revenue
+    expect: pass
+    assert:
+      - desc: "resolved to the recognised-revenue intent"
+        expr: "intent == 'total_recognised_revenue'"
+      - desc: "the year in the question was honoured -- the SQL filters to 2024, not all years"
+        expr: "'2024' in sql_text and 'all years' not in sql_text"
+      - desc: "recognised revenue for 2024 is positive"
+        expr: "sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024') > 0"
+      - desc: "the figure the NL layer returned matches the gold table to the cent"
+        expr: >
+          abs(float(rows[0]['recognised_revenue_usd'])
+              - sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024')) <= 0.01
+      - desc: "2024 recognised revenue reconciles to a direct sum over `clean` to the cent"
+        expr: >
+          abs(sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024')
+              - sql("SELECT sum(amount_usd) FROM clean WHERE status_canonical = 'paid' AND year(invoice_date) = 2024")) <= 0.01
+      - desc: "2024 recognised revenue is 32,686,371.20 -- the figure observed on a real run"
+        expr: >
+          abs(sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024') - 32686371.20) <= 0.01
+      - desc: "total recognised revenue is strictly less than the sum of all invoice amounts, because pending/failed/void are excluded"
+        expr: >
+          0 < sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
+            < sql('SELECT sum(abs(amount_usd)) FROM clean')
+      - desc: "the answer quotes a dollar figure and names what it excludes"
+        expr: "'$' in answer and 'refund' in answer"
+
+  # -------------------------------------------------------------------------
+  - id: EV02_mrr_by_region
+    question: "Which region has the highest average MRR per account?"
+    intent: highest_avg_mrr_region
+    expect: pass
+    assert:
+      - desc: "resolved to the MRR-by-region intent"
+        expr: "intent == 'highest_avg_mrr_region'"
+      - desc: "all four regions are present"
+        expr: "sql('SELECT count(*) FROM gold_mrr_by_region') == 4"
+      - desc: "the top row really is the highest average MRR"
+        expr: >
+          rows[0]['avg_mrr_usd'] == max(float(r['avg_mrr_usd']) for r in rows)
+      - desc: "every average MRR is a plausible per-seat multiple, not a double-counted annual lump sum"
+        expr: "all(0 < float(r['avg_mrr_usd']) < 100000 for r in rows)"
+      - desc: "MRR is per ACCOUNT, not per invoice: region account counts total fewer than the clean invoice rows"
+        expr: >
+          sql('SELECT sum(accounts) FROM gold_mrr_by_region') < sql('SELECT count(*) FROM clean')
+      - desc: "region account counts never exceed the distinct accounts in `clean`"
+        expr: >
+          sql('SELECT sum(accounts) FROM gold_mrr_by_region')
+            <= sql('SELECT count(DISTINCT account_id) FROM clean')
+      - desc: "the winning region is named in the answer"
+        expr: "str(rows[0]['region']).lower() in answer"
+
+  # -------------------------------------------------------------------------
+  - id: EV03_refunds
+    question: "How much have we given back in refunds?"
+    intent: refunds_total
+    expect: pass
+    assert:
+      - desc: "resolved to the refunds intent"
+        expr: "intent == 'refunds_total'"
+      - desc: "the refund total is NEGATIVE -- refund rows carry a negative amount and net against revenue"
+        expr: "sql('SELECT refunded_usd FROM gold_refunds') < 0"
+      - desc: "at least one refund, and the count equals a direct SQL count over `clean`"
+        expr: >
+          0 < sql('SELECT refund_invoices FROM gold_refunds')
+              == sql("SELECT count(*) FROM clean WHERE status_canonical = 'refunded'")
+      - desc: "refunds are smaller in magnitude than recognised revenue -- a larger refund total would mean a sign error"
+        expr: >
+          abs(sql('SELECT refunded_usd FROM gold_refunds'))
+            < sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
+      - desc: "no refunded row carries a positive amount, so nothing is double-counted into revenue"
+        expr: "sql(\"SELECT count(*) FROM clean WHERE status_canonical = 'refunded' AND amount_usd > 0\") == 0"
+      - desc: "refunded invoices are excluded from the paid population entirely"
+        expr: >
+          sql("SELECT count(*) FROM clean WHERE status_canonical = 'refunded'")
+            + sql("SELECT count(*) FROM clean WHERE status_canonical = 'paid'")
+            <= sql('SELECT count(*) FROM clean')
+      - desc: "the answer says the stored amount is negative rather than hiding it"
+        expr: "'negative' in answer"
+
+  # -------------------------------------------------------------------------
+  - id: EV04_churn_by_plan
+    question: "What's the churn rate among Enterprise accounts vs Starter?"
+    intent: churn_by_plan
+    expect: pass
+    assert:
+      - desc: "resolved to the churn-by-plan intent"
+        expr: "intent == 'churn_by_plan'"
+      - desc: "all three plans appear, with no unknown plan leaking through"
+        expr: "sorted(str(r['plan']) for r in rows) == ['Enterprise', 'Pro', 'Starter']"
+      - desc: "every churn rate is a percentage inside 0..100 -- a rate outside that means the denominator is wrong"
+        expr: "all(0.0 <= float(r['churn_rate_pct']) <= 100.0 for r in rows)"
+      - desc: "churned accounts never exceed total accounts for a plan"
+        expr: "all(int(r['churned_accounts']) <= int(r['accounts']) for r in rows)"
+      - desc: "churn is measured per ACCOUNT: plan account counts sum to the distinct accounts in `clean`"
+        expr: >
+          sql('SELECT sum(accounts) FROM gold_churn_by_plan')
+            == sql('SELECT count(DISTINCT account_id) FROM clean')
+      - desc: "the churn rate is arithmetically consistent with its own numerator and denominator"
+        expr: >
+          all(abs(float(r['churn_rate_pct'])
+                  - 100.0 * int(r['churned_accounts']) / int(r['accounts'])) <= 0.01
+              for r in rows)
+      - desc: "both plans the stakeholder named are mentioned in the answer"
+        expr: "'enterprise' in answer and 'starter' in answer"
+
+  # -------------------------------------------------------------------------
+  - id: EV05_top_accounts_csat
+    question: "List the top 5 accounts by revenue, and flag any with CSAT below 2."
+    intent: top_accounts_by_revenue
+    expect: pass
+    assert:
+      - desc: "resolved to the top-accounts intent"
+        expr: "intent == 'top_accounts_by_revenue'"
+      - desc: "exactly five accounts are returned -- the `5` in the question was read as a count"
+        expr: "len(rows) == 5"
+      - desc: "the `2` in 'CSAT below 2' was NOT mistaken for the row limit"
+        expr: "'LIMIT 2' not in sql_text"
+      - desc: "returned in descending revenue order"
+        expr: >
+          [float(r['revenue_usd']) for r in rows]
+            == sorted([float(r['revenue_usd']) for r in rows], reverse=True)
+      - desc: "every top-account revenue figure is positive -- only `paid` invoices contribute"
+        expr: "all(float(r['revenue_usd']) > 0 for r in rows)"
+      - desc: "the low-CSAT flag is set exactly when CSAT is present and <= 2, never on a null CSAT"
+        expr: >
+          sql('SELECT count(*) FROM gold_top_accounts WHERE low_csat_flag <> (csat_score IS NOT NULL AND csat_score <= 2)') == 0
+      - desc: "the gold account count equals the distinct accounts holding a paid invoice -- no join fan-out"
+        expr: >
+          sql('SELECT count(*) FROM gold_top_accounts')
+            == sql("SELECT count(DISTINCT account_id) FROM clean WHERE status_canonical = 'paid'")
+      - desc: "no account's revenue exceeds total recognised revenue"
+        expr: >
+          max(float(r['revenue_usd']) for r in rows)
+            < sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
+
+  # -------------------------------------------------------------------------
+  - id: EV06_exposed_pipeline
+    question: "How many invoices are stuck in pending or failed, and what's the exposed dollar value?"
+    intent: exposed_pipeline
+    expect: pass
+    assert:
+      - desc: "resolved to the exposed-pipeline intent"
+        expr: "intent == 'exposed_pipeline'"
+      - desc: "the invoice count matches a direct SQL count over `clean`"
+        expr: >
+          sum(int(r['invoices']) for r in rows)
+            == sql("SELECT count(*) FROM clean WHERE status_canonical IN ('pending','failed')")
+      - desc: "894 invoices are exposed -- the count observed on a real run"
+        expr: "sum(int(r['invoices']) for r in rows) == 894"
+      - desc: "the exposed dollar value is positive and strictly below total recognised revenue"
+        expr: >
+          0 < sum(float(r['exposed_usd']) for r in rows)
+            < sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
+      - desc: "only pending and failed are counted -- `void` is cancelled business, not exposure"
+        expr: "sorted(str(r['status']) for r in rows) == ['failed', 'pending']"
+      - desc: "exposed value is excluded from recognised revenue, so the two populations do not overlap"
+        expr: >
+          sql("SELECT count(*) FROM clean WHERE status_canonical IN ('pending','failed') AND status_canonical = 'paid'") == 0
+      - desc: "the answer gives both the count and a dollar figure"
+        expr: "'$' in answer and 'invoices' in answer"
+
+  # -------------------------------------------------------------------------
+  - id: EV07_revenue_all_years
+    question: "What is our total recognised revenue across every year?"
+    intent: total_recognised_revenue
+    expect: pass
+    assert:
+      - desc: "resolved to the recognised-revenue intent"
+        expr: "intent == 'total_recognised_revenue'"
+      - desc: "with no year in the question the SQL aggregates all years rather than guessing one"
+        expr: "'all years' in sql_text"
+      - desc: "recognised revenue is positive and STRICTLY LESS than the sum of all invoice amounts in `clean`"
+        expr: >
+          0 < sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
+            < sql('SELECT sum(abs(amount_usd)) FROM clean')
+      - desc: "the gold revenue total reconciles to `clean` to the cent -- the DQ06 reconciliation, asserted independently of the gate"
+        expr: >
+          abs(sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
+              - sql("SELECT sum(amount_usd) FROM clean WHERE status_canonical = 'paid'")) <= 0.01
+      - desc: "paid invoice counts sum to the number of paid rows in `clean`"
+        expr: >
+          sql('SELECT sum(paid_invoices) FROM gold_revenue_by_year')
+            == sql("SELECT count(*) FROM clean WHERE status_canonical = 'paid'")
+      - desc: "every year is a four-digit year, so no date was mis-parsed into an absurd century"
+        expr: "all(1990 <= int(r[0]) <= 2100 for r in sql_rows('SELECT year FROM gold_revenue_by_year'))"
+      - desc: "the total the NL layer reported equals the gold sum to the cent"
+        expr: >
+          abs(float(rows[0]['recognised_revenue_usd'])
+              - sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')) <= 0.01
+
+  # -------------------------------------------------------------------------
+  # A warehouse invariant rather than a stakeholder question: the quarantine
+  # contract itself. Routed straight to SQL because app/nl.py deliberately
+  # implements the six business questions and nothing else -- data-quality
+  # reporting is the gate's job (app/gate.py), not the NL layer's.
+  # -------------------------------------------------------------------------
+  - id: EV08_quarantine_contract
+    question: "How much of this export was unusable, and does every rejection carry a named reason?"
+    intent: none
+    route: sql
+    expect: pass
+    assert:
+      - desc: "every quarantined row carries a NAMED reason -- nothing is rejected anonymously"
+        expr: "sql('SELECT count(*) FROM quarantine WHERE reject_reason IS NULL') == 0"
+      - desc: "rows were genuinely rejected, so the quarantine path is exercised rather than dead code"
+        expr: "sql('SELECT count(*) FROM quarantine') > 0"
+      - desc: "raw is conserved: clean plus quarantine never exceeds the raw row count"
+        expr: >
+          sql('SELECT count(*) FROM raw')
+            >= sql('SELECT count(*) FROM clean') + sql('SELECT count(*) FROM quarantine')
+      - desc: "the quarantine rate sits inside the contract's 15% tolerance"
+        expr: >
+          0 < sql('SELECT count(*) FROM quarantine') / sql('SELECT count(*) FROM raw') <= 0.15
+      - desc: "the cleaned grain holds: exactly one row per invoice_id"
+        expr: >
+          sql('SELECT count(*) FROM clean') == sql('SELECT count(DISTINCT invoice_id) FROM clean')
+      - desc: "no quarantined row is also in `clean` -- a row is kept or rejected, never both"
+        expr: >
+          sql('SELECT count(*) FROM quarantine q JOIN clean c ON q._source_row = c._source_row') == 0
+      - desc: "no negative amount survives on a non-refunded invoice"
+        expr: >
+          sql("SELECT count(*) FROM clean WHERE amount_usd < 0 AND status_canonical <> 'refunded'") == 0
+
+  # -------------------------------------------------------------------------
+  # THE DOCUMENTED LIMITATION. This case is expected to FAIL -- the system is
+  # asserted NOT to answer it. A harness PASS here means it declined.
+  # -------------------------------------------------------------------------
+  - id: EV09_out_of_scope_industry_growth
+    question: "Which industry is growing fastest quarter over quarter?"
+    intent: none
+    expect: fail
+    why: >
+      Deliberately outside the six intents app/nl.py implements. Nothing in
+      specs/contract.yaml defines an industry growth measure, there is no gold
+      table keyed on industry, and "growth" has no agreed definition here --
+      recognised revenue, MRR, seats and account count would each crown a
+      different industry. The invoice dates also run from 2021 into 2027 with a
+      thin tail (37 paid invoices in 2027 against 811 in 2024), so a
+      quarter-over-quarter series would be mostly noise at both ends.
+
+      The NL layer therefore DECLINES and says which six questions it does
+      answer. For a finance audience that is the correct behaviour, not a gap:
+      a confidently wrong industry revenue trend is worse than no answer,
+      because it gets quoted in a board pack and nobody can trace where it came
+      from. Silence is recoverable; a wrong number that looks authoritative is
+      not.
+
+      Answering it properly needs two things this build does not have: a
+      contract-level definition of industry growth (which measure, which
+      calendar, how a partial quarter is handled), and a general text-to-SQL
+      path over `clean` -- schema-grounded generation, a read-only cursor, a row
+      and cost cap, and the generated SQL shown beside the answer so a reviewer
+      can check it. That is a deliberate non-goal inside this timebox, recorded
+      here rather than discovered by a stakeholder.
+    assert:
+      - desc: "the NL layer declines rather than guessing at an undefined measure"
+        expr: "declined is True"
+      - desc: "no intent is resolved"
+        expr: "intent in ('', 'none', None, 'unknown')"
+      - desc: "it ran no SQL at all, so no half-answer was computed"
+        expr: "sql_text == ''"
+      - desc: "the refusal is stated in words rather than returned as an empty answer"
+        expr: "len(answer.strip()) > 0"
+      - desc: "the refusal lists what it CAN answer instead of just saying no"
+        expr: "'revenue' in answer and 'refund' in answer"

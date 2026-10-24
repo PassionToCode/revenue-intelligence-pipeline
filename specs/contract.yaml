@@ -1,18 +1,18 @@
 # ---------------------------------------------------------------------------
-# CloudNova invoice ledger -- MACHINE-READABLE CONTRACT
+# the client invoice ledger -- MACHINE-READABLE CONTRACT
 # ---------------------------------------------------------------------------
 # specs/SPEC.md is the prose version. THIS file is what the code reads at run
 # time: app/clean.py and app/gold.py take every threshold, enum, mapping and FX
 # rate from here. Nothing business-related is hardcoded in Python.
 #
-# Why it matters commercially: CloudNova's finance lead can change an FX rate,
+# Why it matters commercially: the client's finance lead can change an FX rate,
 # add a status spelling, or loosen a quality threshold by editing this file --
 # no developer, no release. evals/test_contract_drift.py fails the build if the
 # code and this file ever disagree.
 # ---------------------------------------------------------------------------
 
 contract_version: "1.0.0"
-dataset: cloudnova_invoices
+dataset: invoices
 grain: "one row per invoice_id after de-duplication"
 source_rows_expected: 5125
 
@@ -62,9 +62,12 @@ normalise:
   billing_cycle:
     monthly: [monthly, month]
     annual:  [annual, annually, yearly, year]
+  # QUOTED deliberately: unquoted `true:` is parsed by YAML as a boolean, which
+  # then stringifies to "True" and silently never matches a lower-cased lookup.
+  # That bug made every account read as not-churned on the first run.
   churned:
-    true:  ["true", "yes", "y", "1", "t"]
-    false: ["false", "no", "n", "0", "f"]
+    "true":  ["true", "yes", "y", "1", "t"]
+    "false": ["false", "no", "n", "0", "f"]
 
 # Which canonical statuses count toward recognised revenue.
 revenue:
@@ -89,15 +92,23 @@ date_formats:
   - "%d-%m-%Y"
 
 amount:
-  # "$4,900.00" / "1,200.00 EUR" / "31432" / "$-4,900.00"
-  strip_characters: ["$", ",", " "]
+  # Observed forms: "$4,900.00" / "1,200.00 EUR" / "31432" / "$-4,900.00"
+  # and -- found only by running it -- EURO and POUND SIGNS, not just "$".
+  # 396 rows (7.7%) quarantined as unparseable on the first run for exactly
+  # that reason. So the rule is: drop a trailing currency CODE, then keep only
+  # digits, minus and decimal point. That covers any symbol, including ones
+  # not yet seen in this export.
   strip_trailing_currency_codes: [USD, EUR, GBP]
+  keep_characters_regex: "[^0-9.-]"
   allow_negative: true          # refunds are genuinely negative
   type: "DECIMAL(18,2)"
 
 email:
   repair: { "_at_": "@" }       # a few rows use _at_ instead of @
-  pattern: "^[^@sv]+@[^@sv]+\\.[^@sv]+$"
+  # Deliberately loose: one @, a dot in the domain, no whitespace. Validating
+  # email properly is a rabbit hole and a bad address does not invalidate the
+  # revenue on the invoice -- see on_invalid below.
+  pattern: "^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$"
   on_invalid: null_out          # NOT quarantine: a bad email does not
                                 # invalidate the revenue on the invoice
 
@@ -130,6 +141,14 @@ quarantine_when:
   - { reason: invoice_date_unparseable, test: "invoice_date IS NULL" }
   - { reason: seats_not_positive,     test: "seats IS NULL OR seats <= 0" }
   - { reason: currency_unknown,       test: "fx_rate IS NULL" }
+  # Found by DQ07 on the first full run: 2 invoices carry a NEGATIVE amount
+  # while their status normalises to `paid`. Only `refunded` rows are supposed
+  # to be negative, so a negative `paid` row is a source defect, not a
+  # discount -- and leaving it in `clean` would quietly reduce recognised
+  # revenue by an amount nobody authorised. Quarantined with a reason so
+  # the client can see exactly which two invoices to fix at source.
+  - { reason: negative_amount_on_non_refunded,
+      test: "amount_usd < 0 AND status_canonical NOT IN ('refunded')" }
 
 # ---------------------------------------------------------------------------
 # 6. QUALITY GATE -- the numbers that decide publish or stop
@@ -155,7 +174,7 @@ quality_gate:
       threshold: 0.15
       rationale: >
         Up to 15% of a three-system stitched export being unusable is tolerable
-        and is reported back to CloudNova. Above that the export itself is
+        and is reported back to the client. Above that the export itself is
         suspect and no revenue figure should be published from it.
 
     - id: DQ04
