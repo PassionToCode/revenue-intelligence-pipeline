@@ -1,0 +1,206 @@
+# ---------------------------------------------------------------------------
+# CloudNova invoice ledger -- MACHINE-READABLE CONTRACT
+# ---------------------------------------------------------------------------
+# specs/SPEC.md is the prose version. THIS file is what the code reads at run
+# time: app/clean.py and app/gold.py take every threshold, enum, mapping and FX
+# rate from here. Nothing business-related is hardcoded in Python.
+#
+# Why it matters commercially: CloudNova's finance lead can change an FX rate,
+# add a status spelling, or loosen a quality threshold by editing this file --
+# no developer, no release. evals/test_contract_drift.py fails the build if the
+# code and this file ever disagree.
+# ---------------------------------------------------------------------------
+
+contract_version: "1.0.0"
+dataset: cloudnova_invoices
+grain: "one row per invoice_id after de-duplication"
+source_rows_expected: 5125
+
+# ---------------------------------------------------------------------------
+# 1. PRICING AND REVENUE RULES  (from data/BUSINESS_CONTEXT.md)
+# ---------------------------------------------------------------------------
+pricing:
+  list_price_per_seat_per_month_usd:
+    Starter: 49
+    Pro: 99
+    Enterprise: 299
+  # Annual invoices bill 10 months, not 12 -- two months free as the annual
+  # incentive. Used for the INVOICE-amount expectation, never for MRR.
+  annual_months_billed: 10
+  monthly_months_billed: 1
+
+fx_to_usd:
+  USD: 1.00
+  EUR: 1.08
+  GBP: 1.27
+
+# MRR = list_price[plan] * seats * (1 - discount_pct/100), in USD.
+# Deliberately INDEPENDENT of billing_cycle: an annual invoice maps to the same
+# underlying monthly figure, so the annual lump sum must not be double-counted.
+mrr:
+  formula: "list_price_usd[plan] * seats * (1 - discount_pct / 100)"
+  includes_billing_cycle: false
+
+# ---------------------------------------------------------------------------
+# 2. CATEGORY NORMALISATION
+# ---------------------------------------------------------------------------
+# Lower-cased and whitespace-stripped before lookup, so ' Starter ', 'STARTER'
+# and 'starter' all collapse to one key. Anything NOT listed is quarantined
+# with a named reason rather than silently bucketed -- an unknown status must
+# never be guessed into `paid`.
+normalise:
+  status:
+    paid:     [paid, complete, completed, success]
+    pending:  [pending, in_review, awaiting]
+    failed:   [failed, declined, error]
+    refunded: [refunded, refund, charged_back]
+    void:     [void, cancelled, canceled]
+  plan:
+    Starter:    [starter, start, "tier 1"]
+    Pro:        [pro, professional, "tier 2"]
+    Enterprise: [enterprise, ent, "tier 3"]
+  billing_cycle:
+    monthly: [monthly, month]
+    annual:  [annual, annually, yearly, year]
+  churned:
+    true:  ["true", "yes", "y", "1", "t"]
+    false: ["false", "no", "n", "0", "f"]
+
+# Which canonical statuses count toward recognised revenue.
+revenue:
+  recognised_status: [paid]
+  # refunded rows carry a NEGATIVE amount and net against revenue; they are
+  # kept in the cleaned table but excluded from `paid`.
+  netting_status: [refunded]
+  excluded_status: [pending, failed, void]
+
+# ---------------------------------------------------------------------------
+# 3. PARSING RULES
+# ---------------------------------------------------------------------------
+# Applied in order; first successful parse wins. MM/DD/YYYY BEFORE DD/MM/YYYY
+# is a DOCUMENTED ASSUMPTION, not a fact -- see specs/SPEC.md section 5 and
+# ASSUMPTIONS A1. The source is a US SaaS company and the unambiguous rows in
+# this file (day > 12) are consistent with month-first.
+date_formats:
+  - "%Y-%m-%d"
+  - "%m/%d/%Y"
+  - "%Y/%m/%d"
+  - "%b %d %Y"
+  - "%d-%m-%Y"
+
+amount:
+  # "$4,900.00" / "1,200.00 EUR" / "31432" / "$-4,900.00"
+  strip_characters: ["$", ",", " "]
+  strip_trailing_currency_codes: [USD, EUR, GBP]
+  allow_negative: true          # refunds are genuinely negative
+  type: "DECIMAL(18,2)"
+
+email:
+  repair: { "_at_": "@" }       # a few rows use _at_ instead of @
+  pattern: "^[^@sv]+@[^@sv]+\\.[^@sv]+$"
+  on_invalid: null_out          # NOT quarantine: a bad email does not
+                                # invalidate the revenue on the invoice
+
+# ---------------------------------------------------------------------------
+# 4. DE-DUPLICATION
+# ---------------------------------------------------------------------------
+# 124 invoice_ids appear more than once. Two distinct cases:
+#   full duplicates      -- identical rows, safe to collapse
+#   near-duplicates      -- same invoice_id, DIFFERENT status/amount, because
+#                           the billing tool and the CRM disagree
+# Tie-break: prefer the row whose status is furthest along the payment
+# lifecycle (a `paid` record beats a `pending` one for the same invoice --
+# finance systems move forward, not backward), then the later invoice_date,
+# then the larger absolute amount as a final deterministic tie-break.
+deduplication:
+  key: [invoice_id]
+  strategy: status_precedence_then_latest
+  status_precedence: [paid, refunded, failed, void, pending]
+  then_order_by: [invoice_date_desc, abs_amount_desc]
+
+# ---------------------------------------------------------------------------
+# 5. QUARANTINE RULES  (kept, never deleted, each with a named reason)
+# ---------------------------------------------------------------------------
+quarantine_when:
+  - { reason: invoice_id_missing,     test: "invoice_id IS NULL OR invoice_id = ''" }
+  - { reason: status_unknown,         test: "status_canonical IS NULL" }
+  - { reason: plan_unknown,           test: "plan_canonical IS NULL" }
+  - { reason: billing_cycle_unknown,  test: "billing_cycle_canonical IS NULL" }
+  - { reason: amount_unparseable,     test: "amount_usd IS NULL" }
+  - { reason: invoice_date_unparseable, test: "invoice_date IS NULL" }
+  - { reason: seats_not_positive,     test: "seats IS NULL OR seats <= 0" }
+  - { reason: currency_unknown,       test: "fx_rate IS NULL" }
+
+# ---------------------------------------------------------------------------
+# 6. QUALITY GATE -- the numbers that decide publish or stop
+# ---------------------------------------------------------------------------
+# The job exits non-zero if ANY check breaches. Nothing here is advisory.
+quality_gate:
+  checks:
+    - id: DQ01
+      measure: raw_row_count
+      comparison: ">="
+      threshold: 1
+      rationale: "An empty export is a delivery failure, not an empty result."
+
+    - id: DQ02
+      measure: clean_row_count
+      comparison: ">="
+      threshold: 1
+      rationale: "Everything quarantined means the contract no longer matches the source."
+
+    - id: DQ03
+      measure: quarantine_rate
+      comparison: "<="
+      threshold: 0.15
+      rationale: >
+        Up to 15% of a three-system stitched export being unusable is tolerable
+        and is reported back to CloudNova. Above that the export itself is
+        suspect and no revenue figure should be published from it.
+
+    - id: DQ04
+      measure: duplicate_rate
+      comparison: "<="
+      threshold: 0.10
+      rationale: "124 of 5125 known duplicate ids is ~2.4%; 10%+ means the extract window overlapped."
+
+    - id: DQ05
+      measure: clean_pk_duplicate_count
+      comparison: "=="
+      threshold: 0
+      rationale: "Cleaned grain is one row per invoice_id. Non-negotiable."
+
+    - id: DQ06
+      measure: revenue_reconciliation_abs_diff
+      comparison: "<="
+      threshold: 0.01
+      rationale: >
+        Recognised revenue summed from the cleaned table must equal the gold
+        revenue table to the cent. This is the check that catches a lost filter
+        or a join fan-out -- the class of bug that survives code review and is
+        found by a client's finance team.
+
+    - id: DQ07
+      measure: negative_amount_outside_refunded_count
+      comparison: "=="
+      threshold: 0
+      rationale: "A negative amount on a non-refunded invoice is a source defect, not a discount."
+
+  report_path: "out/_dq_report.json"
+
+# ---------------------------------------------------------------------------
+# 7. GOLD TABLES -- one per stakeholder question in BUSINESS_CONTEXT.md
+# ---------------------------------------------------------------------------
+gold_tables:
+  - name: gold_revenue_by_year
+    question: "Q1: total recognised revenue in USD for paid invoices, by year"
+  - name: gold_mrr_by_region
+    question: "Q2: which region has the highest average MRR per account"
+  - name: gold_refunds
+    question: "Q3: how much have we given back in refunds"
+  - name: gold_churn_by_plan
+    question: "Q4: churn rate by plan (Enterprise vs Starter)"
+  - name: gold_top_accounts
+    question: "Q5: top accounts by revenue, flagged where CSAT <= 2"
+  - name: gold_exposed_pipeline
+    question: "Q6: invoices stuck in pending/failed and the exposed dollar value"
