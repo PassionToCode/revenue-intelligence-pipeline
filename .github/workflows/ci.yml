@@ -39,13 +39,38 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # The client export is deliberately NOT committed -- it carries account
+      # names, billing emails and per-customer revenue. See the README. So the
+      # data-dependent steps can only run where the CSV has been supplied,
+      # which on a fork or a public runner it has not been.
+      #
+      # This is the honest trade of withholding the data: CI validates the
+      # contract and the static spec/code agreement on every push, and the
+      # pipeline, gate and evals run wherever the data is present -- locally,
+      # or in CI once the CSV is provided as a secret or an artifact.
+      - name: Check whether the client data is present
+        id: data
+        run: |
+          if [ -f data/invoices.csv ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "data/invoices.csv is not committed by design - running static checks only"
+          fi
+
+      - name: Contract loads and is internally consistent
+        run: python -c "from app.contract import Contract; c=Contract.load(); print('contract', c.version, len(c.checks), 'checks,', len(c.gold_tables), 'gold tables')"
+
       - name: Pipeline and data-quality gate
+        if: steps.data.outputs.present == 'true'
         run: python -m app
 
       - name: Eval harness
+        if: steps.data.outputs.present == 'true'
         run: python evals/run_evals.py
 
       - name: Contract-drift tests
+        if: steps.data.outputs.present == 'true'
         run: python -m pytest evals -q
 
   secrets-scan:
