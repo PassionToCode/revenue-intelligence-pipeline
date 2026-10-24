@@ -1,0 +1,11 @@
+invoice_id,account_id,account_name,contact_email,region,industry,plan,billing_cycle,seats,currency,amount,discount_pct,status,payment_method,signup_date,invoice_date,churned,csat_score,support_tickets
+INV-900001,ACC-9001,Acme Broken,billing@acme.com,NA,Retail,starter,monthly,10,USD,"$4,900.00",0,paid,Credit Card,2023-01-05,2024-01-05,N,4,1
+INV-900002,ACC-9002,Globex Broken,billing@globex.com,EMEA,Gaming,Pro,annual,25,EUR,"not-a-number",0,paid,ach,2023-02-05,2024-02-05,N,3,2
+INV-900003,ACC-9003,Initech Broken,billing@initech.com,APAC,Education,TELEPORTED,monthly,5,USD,"$1,000.00",0,paid,wire,2023-03-05,2024-03-05,N,5,0
+INV-900004,ACC-9004,Wayne Broken,billing@wayne.com,LATAM,Retail,Pro,fortnightly,10,USD,"$2,000.00",0,paid,Credit Card,2023-04-05,2024-04-05,N,4,1
+INV-900005,ACC-9005,Stark Broken,billing@stark.com,NA,Gaming,Enterprise,monthly,50,ZZZ,"$9,000.00",0,paid,ach,2023-05-05,2024-05-05,N,2,3
+INV-900006,ACC-9006,Oscorp Broken,billing@oscorp.com,EMEA,Education,starter,monthly,0,USD,"$490.00",0,paid,wire,2023-06-05,2024-06-05,N,3,1
+INV-900007,ACC-9007,Tyrell Broken,billing@tyrell.com,APAC,Retail,Pro,monthly,10,GBP,"$990.00",0,quantum_superposition,Credit Card,2023-07-05,2024-07-05,N,4,0
+INV-900008,ACC-9008,Nakatomi Broken,billing@nakatomi.com,LATAM,Gaming,Enterprise,annual,20,USD,"$5,980.00",0,paid,ach,2023-08-05,not-a-date,N,5,2
+INV-900009,ACC-9009,Pied Broken,billing@pied.com,NA,Education,Starter,monthly,10,USD,"$490.00",0,paid,wire,2023-09-05,2024-09-05,N,4,1
+INV-900010,ACC-9010,Soylent Broken,billing@soylent.com,EMEA,Retail,Pro,monthly,15,USD,"",0,paid,Credit Card,2023-10-05,2024-10-05,N,3,0
