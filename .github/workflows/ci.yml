@@ -104,12 +104,24 @@ jobs:
       # dependencies from requirements.txt without making CI build the image.
       # scanners is pinned to 'vuln' — secrets are the gitleaks job's gate, and
       # misconfiguration scanning is not in scope for a repo with no IaC.
+      # Installed from the official apt repository rather than via
+      # aquasecurity/trivy-action: the action's version tags move, and pinning
+      # one that did not exist failed this job in 3 seconds with "unable to
+      # resolve action". A pinned binary cannot go stale the same way.
+      - name: install trivy
+        run: |
+          sudo apt-get install -y wget gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq
+          sudo apt-get install -y trivy
+
       - name: trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          trivy fs . \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1
