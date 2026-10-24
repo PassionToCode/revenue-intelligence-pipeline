@@ -116,7 +116,13 @@ def _evaluate(expr: str, namespace: dict[str, Any]) -> tuple[bool, str]:
     than evaluating it. Collapsing whitespace is safe here because the only
     strings inside an expression are single-spaced SQL.
     """
-    flat = " ".join(str(expr).split())
+    # Wrapped in parentheses as well as flattened. Flattening alone was enough
+    # on Windows but failed in CI on Linux with "IndentationError: unexpected
+    # indent" -- git normalises line endings on push, so a YAML folded scalar
+    # that collapsed to one line locally kept a newline on the runner.
+    # Parenthesising makes any residual newline or indent syntactically
+    # harmless, which is the difference between "works on my machine" and works.
+    flat = "(" + " ".join(str(expr).split()) + ")"
     try:
         value = eval(flat, {"__builtins__": _SAFE_BUILTINS}, namespace)  # noqa: S307
     except Exception as exc:  # noqa: BLE001
