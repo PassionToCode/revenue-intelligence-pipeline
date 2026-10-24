@@ -320,7 +320,17 @@ def test_fx_rates_and_prices_in_the_contract_match_the_business_context(raw_cont
     """The contract is the code's source of truth; data/BUSINESS_CONTEXT.md is
     the client's. If those two drift, the build is correct against the wrong
     brief, which is the hardest kind of wrong to notice."""
-    brief = (ROOT / "data" / "BUSINESS_CONTEXT.md").read_text(encoding="utf-8")
+    # The briefing names the client, so it is deliberately not committed -- see
+    # the README. Where it is absent this check cannot run, and skipping is the
+    # honest outcome: silently passing would claim the contract was reconciled
+    # against the brief when nothing was read.
+    brief_path = ROOT / "data" / "BUSINESS_CONTEXT.md"
+    if not brief_path.is_file():
+        pytest.skip(
+            "data/BUSINESS_CONTEXT.md is not committed (it names the client). "
+            "Drop it in to reconcile the contract's FX rates and list prices "
+            "against the brief.")
+    brief = brief_path.read_text(encoding="utf-8")
     for currency, rate in raw_contract["fx_to_usd"].items():
         if currency == "USD":
             continue
