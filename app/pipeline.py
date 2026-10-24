@@ -78,11 +78,14 @@ def _typed(con, c: Contract) -> None:
                 try_cast(nullif(trim(csat_score), '') AS INTEGER)     AS csat_score,
                 try_cast(nullif(trim(support_tickets), '') AS INTEGER) AS support_tickets,
                 nullif(trim(payment_method), '')              AS payment_method_raw,
-                -- "$4,900.00" / "1,200.00 EUR" / "31432" / "$-4,900.00"
+                -- "$4,900.00" / "1,200.00 EUR" / "31432" / "$-4,900.00" and --
+                -- found only by running it -- euro and pound SYMBOLS too.
+                -- Drop a trailing currency code, then keep only digits, minus
+                -- and decimal point, so any symbol is handled.
                 try_cast(
                     regexp_replace(
                         regexp_replace(trim(amount), '(USD|EUR|GBP)$', ''),
-                        '[$, ]', '', 'g')
+                        '[^0-9.-]', '', 'g')
                     AS DECIMAL(18,2))                         AS amount_local,
                 -- a few emails use _at_ instead of @; repair, then validate.
                 CASE WHEN replace(trim(contact_email), '_at_', '@')
@@ -121,6 +124,8 @@ def _quarantine(con, c: Contract) -> None:
             WHEN invoice_date IS NULL                 THEN 'invoice_date_unparseable'
             WHEN seats IS NULL OR seats <= 0          THEN 'seats_not_positive'
             WHEN fx_rate IS NULL                      THEN 'currency_unknown'
+            WHEN amount_usd < 0 AND status_canonical <> 'refunded'
+                                                      THEN 'negative_amount_on_non_refunded'
         END AS reject_reason
         FROM typed
         WHERE invoice_id IS NULL OR invoice_id = ''
@@ -128,6 +133,7 @@ def _quarantine(con, c: Contract) -> None:
            OR billing_cycle_canonical IS NULL OR amount_usd IS NULL
            OR invoice_date IS NULL OR seats IS NULL OR seats <= 0
            OR fx_rate IS NULL
+           OR (amount_usd < 0 AND status_canonical <> 'refunded')
     """)
 
 
@@ -161,6 +167,9 @@ def _clean(con, c: Contract) -> None:
               AND billing_cycle_canonical IS NOT NULL AND amount_usd IS NOT NULL
               AND invoice_date IS NOT NULL AND seats IS NOT NULL AND seats > 0
               AND fx_rate IS NOT NULL
+              -- must mirror _quarantine() exactly: a row leaves `typed` into
+              -- EITHER clean OR quarantine, never both and never neither.
+              AND NOT (amount_usd < 0 AND status_canonical <> 'refunded')
         ) WHERE _rank = 1
     """)
 
