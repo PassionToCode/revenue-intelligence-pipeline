@@ -107,9 +107,18 @@ def _rows_factory(con: duckdb.DuckDBPyConnection):
 
 
 def _evaluate(expr: str, namespace: dict[str, Any]) -> tuple[bool, str]:
-    """Return (held, detail). An exception is a failed assertion, not a crash."""
+    """Return (held, detail). An exception is a failed assertion, not a crash.
+
+    The expression is flattened to a single line first. YAML's folded scalar
+    (`>`) keeps a real newline in front of any line indented further than the
+    first, which is exactly how a readable multi-line assertion is written in
+    cases.yaml -- and `eval` would then reject it as an IndentationError rather
+    than evaluating it. Collapsing whitespace is safe here because the only
+    strings inside an expression are single-spaced SQL.
+    """
+    flat = " ".join(str(expr).split())
     try:
-        value = eval(expr, {"__builtins__": _SAFE_BUILTINS}, namespace)  # noqa: S307
+        value = eval(flat, {"__builtins__": _SAFE_BUILTINS}, namespace)  # noqa: S307
     except Exception as exc:  # noqa: BLE001
         return False, "raised %s: %s" % (type(exc).__name__, exc)
     return bool(value), "" if value else "evaluated false"

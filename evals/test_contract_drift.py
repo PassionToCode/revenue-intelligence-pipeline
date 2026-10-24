@@ -366,3 +366,92 @@ def test_cleaned_grain_is_one_row_per_invoice_id(con):
     assert rows == distinct, (
         "clean holds %d rows for %d distinct invoice_ids -- the contract's "
         "grain is one row per invoice_id" % (rows, distinct))
+
+
+# ---------------------------------------------------------------------------
+# 7. the gate must be proven to FAIL, not only to pass
+# ---------------------------------------------------------------------------
+# A gate only ever observed passing is not evidence of anything -- it could be
+# returning True unconditionally and nobody would know. So every check DQ01-DQ07
+# gets a case that breaks exactly the property it guards and asserts that THAT
+# check reports a breach.
+#
+# The breakage is applied to the built warehouse rather than to seven separate
+# broken CSV files. Same effect on the measure, and it isolates one property per
+# case: a hand-written broken CSV trips several checks at once, so a test built
+# on one could pass while the check it names is dead.
+#
+# Collateral breaches are expected and ignored -- each case asserts only that
+# its own check failed and that the overall gate stopped the run.
+_BREAKAGE = {
+    # measure                               SQL that breaks it
+    "DQ01": ["DELETE FROM raw"],
+    "DQ02": ["DELETE FROM clean"],
+    # quarantine_rate = quarantined / raw. Shrinking raw to 10 rows takes the
+    # 2 genuine rejects to 20%, past the contract's 15% tolerance.
+    "DQ03": ["DELETE FROM raw WHERE _source_row > 10"],
+    # duplicate_rate = (raw - quarantined - distinct clean ids) / raw.
+    "DQ04": ["DELETE FROM clean WHERE _source_row > 1000"],
+    # one extra copy of a cleaned row breaks the one-row-per-invoice_id grain.
+    "DQ05": ["INSERT INTO clean SELECT * FROM clean LIMIT 1"],
+    # a cent of drift between clean and gold -- the lost-filter / join-fan-out
+    # signature DQ06 exists to catch.
+    "DQ06": ["UPDATE gold_revenue_by_year "
+             "SET recognised_revenue_usd = recognised_revenue_usd + 1"],
+    # a negative amount on an invoice that is not a refund.
+    "DQ07": ["UPDATE clean SET amount_usd = -1 WHERE invoice_id = "
+             "(SELECT min(invoice_id) FROM clean "
+             "WHERE status_canonical = 'paid')"],
+}
+
+
+@pytest.fixture()
+def broken_con(contract: Contract):
+    """A throwaway warehouse, rebuilt per test so breakage cannot leak."""
+    connection = duckdb.connect()
+    build(connection, str(CSV_PATH), contract)
+    yield connection
+    connection.close()
+
+
+def test_the_gate_passes_on_the_real_export(con, contract):
+    """The control case. Without it, a gate that failed on EVERYTHING would
+    satisfy all seven failure tests below and look thoroughly verified."""
+    report = run_gate(con, contract)
+    assert report["passed"], (
+        "gate breached on the unmodified export: %s" % report["breaches"])
+
+
+@pytest.mark.parametrize("check_id", sorted(_BREAKAGE))
+def test_each_gate_check_actually_fails_when_breached(
+        broken_con, contract, check_id):
+    """Break the property one check guards; assert that check reports a breach."""
+    for statement in _BREAKAGE[check_id]:
+        broken_con.execute(statement)
+
+    report = run_gate(broken_con, contract)
+    by_id = {str(r["id"]): r for r in report["checks"]}
+    assert check_id in by_id, "%s is not reported by the gate at all" % check_id
+
+    assert not by_id[check_id]["passed"], (
+        "%s (%s %s %s) still PASSED after its property was deliberately "
+        "broken; measured %r. An untestable check is an unenforced check."
+        % (check_id, by_id[check_id]["measure"], by_id[check_id]["comparison"],
+           by_id[check_id]["threshold"], by_id[check_id]["measured"]))
+
+    assert not report["passed"], (
+        "%s breached but the gate as a whole reported PASS -- the run would "
+        "publish a figure the contract forbids" % check_id)
+    assert any(check_id in b for b in report["breaches"]), (
+        "%s breached but is not named in report['breaches'], so the operator "
+        "is never told which rule stopped the run" % check_id)
+
+
+def test_every_contract_check_has_a_failure_case(contract):
+    """Adding a check to the contract without a failure case here would quietly
+    land an unverified quality rule. This test makes that impossible."""
+    declared = {str(ch["id"]) for ch in contract.checks}
+    assert declared == set(_BREAKAGE), (
+        "check(s) with no proof they can fail: %s; failure case(s) for a check "
+        "that no longer exists: %s"
+        % (sorted(declared - set(_BREAKAGE)), sorted(set(_BREAKAGE) - declared)))

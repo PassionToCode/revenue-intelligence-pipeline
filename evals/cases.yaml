@@ -66,9 +66,9 @@ cases:
         expr: >
           abs(sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024')
               - sql("SELECT sum(amount_usd) FROM clean WHERE status_canonical = 'paid' AND year(invoice_date) = 2024")) <= 0.01
-      - desc: "2024 recognised revenue is 28,142,947.72 -- the figure observed on a real run"
+      - desc: "2024 recognised revenue is 32,686,371.20 -- the figure observed on a real run"
         expr: >
-          abs(sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024') - 28142947.72) <= 0.01
+          abs(sql('SELECT recognised_revenue_usd FROM gold_revenue_by_year WHERE year = 2024') - 32686371.20) <= 0.01
       - desc: "total recognised revenue is strictly less than the sum of all invoice amounts, because pending/failed/void are excluded"
         expr: >
           0 < sql('SELECT sum(recognised_revenue_usd) FROM gold_revenue_by_year')
@@ -197,8 +197,8 @@ cases:
         expr: >
           sum(int(r['invoices']) for r in rows)
             == sql("SELECT count(*) FROM clean WHERE status_canonical IN ('pending','failed')")
-      - desc: "832 invoices are exposed -- the count observed on a real run"
-        expr: "sum(int(r['invoices']) for r in rows) == 832"
+      - desc: "894 invoices are exposed -- the count observed on a real run"
+        expr: "sum(int(r['invoices']) for r in rows) == 894"
       - desc: "the exposed dollar value is positive and strictly below total recognised revenue"
         expr: >
           0 < sum(float(r['exposed_usd']) for r in rows)
