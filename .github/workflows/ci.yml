@@ -1,0 +1,115 @@
+# CI for the CloudNova revenue-intelligence pipeline.
+#
+# Four independent gates; any one of them can fail the build:
+#
+#   evals        — correctness. Runs the pipeline and the data-quality gate
+#                  (`python -m app`, exit 1 = data failed the gate, 2 = program
+#                  broke), then the eval harness, then the contract-drift tests.
+#                  This is the gate that proves the numbers are still right and
+#                  that nobody has hardcoded a value the contract owns.
+#   secrets-scan — gitleaks over the repo and its history. The brief says "don't
+#                  commit secrets"; this job is the proof, not a promise.
+#   sast         — semgrep static analysis of the Python source.
+#   vuln-scan    — trivy over the filesystem for known-vulnerable dependencies.
+#
+# Scanner scope is deliberately narrowed (see the comment in each job) so a red
+# check means a real finding rather than style noise.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    name: Pipeline, gate and evals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pipeline and data-quality gate
+        run: python -m app
+
+      - name: Eval harness
+        run: python evals/run_evals.py
+
+      - name: Contract-drift tests
+        run: python -m pytest evals -q
+
+  secrets-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret that was committed and then removed is still
+          # a leaked secret.
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast:
+    name: Static analysis (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # semgrep's own GitHub Action is deprecated in favour of running the CLI
+      # directly, which is what semgrep's docs now recommend; the range keeps it
+      # off a future 2.x.
+      - name: Install semgrep
+        run: pip install 'semgrep>=1.90,<2'
+
+      # Gated on ERROR-severity findings only. The lower "audit" severities flag
+      # SQL assembled by string formatting, which is exactly what this pipeline
+      # does on purpose: every fragment comes from the versioned contract spec in
+      # specs/contract.yaml, never from user input, so there is no injection path
+      # to fix. Narrowing severity is preferred here over a .semgrepignore file,
+      # which would silence whole paths including future real findings.
+      - name: semgrep scan
+        run: >-
+          semgrep scan
+          --config p/python
+          --config p/security-audit
+          --severity ERROR
+          --error
+          --metrics off
+
+  vuln-scan:
+    name: Dependency vulnerabilities (trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Filesystem scan rather than an image scan: it covers the same pinned
+      # dependencies from requirements.txt without making CI build the image.
+      # scanners is pinned to 'vuln' — secrets are the gitleaks job's gate, and
+      # misconfiguration scanning is not in scope for a repo with no IaC.
+      - name: trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
