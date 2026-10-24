@@ -45,7 +45,7 @@ from app.contract import Contract  # noqa: E402
 from app.pipeline import build  # noqa: E402
 
 CASES_PATH = Path(__file__).resolve().parent / "cases.yaml"
-CSV_PATH = ROOT / "data" / "cloudnova_invoices.csv"
+CSV_PATH = ROOT / "data" / "invoices.csv"
 
 # app/gate.py and app/nl.py are written by a parallel worker. Wait for them
 # rather than shipping a second, divergent copy of either.
@@ -174,7 +174,7 @@ def main() -> int:
     c = Contract.load()
 
     print("=" * 108)
-    print("CLOUDNOVA EVAL HARNESS   contract %s   %d cases   %s"
+    print("EVAL HARNESS   contract %s   %d cases   %s"
           % (c.version, len(cases), CASES_PATH))
     print("=" * 108)
 

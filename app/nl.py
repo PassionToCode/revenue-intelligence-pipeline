@@ -4,7 +4,7 @@
 Why intents run first, and why that ordering is the whole design
 ----------------------------------------------------------------
 The brief asks for answers a finance lead can trust. For the six questions
-CloudNova actually asked (data/BUSINESS_CONTEXT.md) there is reviewed SQL
+the client actually asked (data/BUSINESS_CONTEXT.md) there is reviewed SQL
 against gold tables the quality gate has already reconciled to the cent. That
 answer is **deterministic, auditable and free**: the same question returns the
 same number every time, the SQL was read by a human, and no network call or
@@ -221,7 +221,7 @@ def _answer_exposed(c: Contract, question: str, rows: list[dict]) -> str:
                              _money(r["exposed_usd"]))
                           for r in rows)
     return ("%d invoices are stuck, with %s of exposed value (%s). Exposed "
-            "means billed but not recognised -- it is cash CloudNova has not "
+            "means billed but not recognised -- it is cash the client has not "
             "collected, and it is excluded from recognised revenue."
             % (invoices, _money(exposed), breakdown))
 
@@ -301,7 +301,7 @@ def _decline_message(extra: str | None = None) -> str:
              "revenue figure is worse than no figure."]
     if extra:
         lines.append(extra)
-    lines.append("I answer these six questions about the CloudNova invoice "
+    lines.append("I answer these six questions about the the client invoice "
                  "ledger deterministically, from reviewed SQL:")
     for i, q in enumerate(capabilities(), 1):
         lines.append("  %d. %s" % (i, q))
@@ -489,8 +489,8 @@ def generate_sql(con: duckdb.DuckDBPyConnection, c: Contract, question: str,
 
     headers = {"Authorization": "Bearer %s" % key}
     if provider["name"] == "openrouter":
-        headers["HTTP-Referer"] = "https://github.com/cloudnova-revenue-intelligence"
-        headers["X-Title"] = "CloudNova Revenue Intelligence"
+        headers["HTTP-Referer"] = "https://github.com/invoices_revenue-intelligence"
+        headers["X-Title"] = "the client Revenue Intelligence"
     body = _http_json(
         provider["url"],
         {"model": model, "temperature": 0,

@@ -4,12 +4,12 @@ How a dirty CSV becomes a number somebody can check.
 
 The engine is **DuckDB**, running in-process inside Python. There is no server to
 start, no connection string, and no network call on the default path — DuckDB
-reads `data/cloudnova_invoices.csv` directly and does the typed decimal
+reads `data/invoices.csv` directly and does the typed decimal
 arithmetic in the same process. Setup is `pip install duckdb pyyaml`.
 
 ```mermaid
 flowchart TD
-    CSV["data/cloudnova_invoices.csv<br/>~5,125 rows, 3 source systems"]
+    CSV["data/invoices.csv<br/>~5,125 rows, 3 source systems"]
     CONTRACT["specs/contract.yaml<br/>prices, FX, spellings,<br/>dedup order, thresholds"]
 
     CSV --> RAW["<b>raw</b><br/>every column as TEXT<br/>nothing coerced"]
@@ -69,7 +69,7 @@ exactly one of these two tables.** `raw = clean + quarantine`, always. A row
 cannot quietly disappear between them.
 
 Why the fork rather than a filter: dropping bad rows would make the output look
-immaculate while silently discarding part of CloudNova's business. The quarantine
+immaculate while silently discarding part of the client's business. The quarantine
 table converts an invisible loss into a published count, an actionable breakdown
 by reason, and the original text for a human to adjudicate.
 
@@ -158,7 +158,7 @@ thresholds are read from it at run time. Nothing business-related is a literal i
 a Python file, and `evals/test_contract_drift.py` fails the build if the code and
 the contract ever disagree.
 
-What that buys commercially: CloudNova's finance lead can add a status spelling,
+What that buys commercially: the client's finance lead can add a status spelling,
 correct an FX rate, or loosen a quality threshold by editing one YAML file — no
 developer, no release.
 

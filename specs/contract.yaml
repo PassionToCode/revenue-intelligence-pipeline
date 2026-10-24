@@ -1,18 +1,18 @@
 # ---------------------------------------------------------------------------
-# CloudNova invoice ledger -- MACHINE-READABLE CONTRACT
+# the client invoice ledger -- MACHINE-READABLE CONTRACT
 # ---------------------------------------------------------------------------
 # specs/SPEC.md is the prose version. THIS file is what the code reads at run
 # time: app/clean.py and app/gold.py take every threshold, enum, mapping and FX
 # rate from here. Nothing business-related is hardcoded in Python.
 #
-# Why it matters commercially: CloudNova's finance lead can change an FX rate,
+# Why it matters commercially: the client's finance lead can change an FX rate,
 # add a status spelling, or loosen a quality threshold by editing this file --
 # no developer, no release. evals/test_contract_drift.py fails the build if the
 # code and this file ever disagree.
 # ---------------------------------------------------------------------------
 
 contract_version: "1.0.0"
-dataset: cloudnova_invoices
+dataset: invoices
 grain: "one row per invoice_id after de-duplication"
 source_rows_expected: 5125
 
@@ -146,7 +146,7 @@ quarantine_when:
   # to be negative, so a negative `paid` row is a source defect, not a
   # discount -- and leaving it in `clean` would quietly reduce recognised
   # revenue by an amount nobody authorised. Quarantined with a reason so
-  # CloudNova can see exactly which two invoices to fix at source.
+  # the client can see exactly which two invoices to fix at source.
   - { reason: negative_amount_on_non_refunded,
       test: "amount_usd < 0 AND status_canonical NOT IN ('refunded')" }
 
@@ -174,7 +174,7 @@ quality_gate:
       threshold: 0.15
       rationale: >
         Up to 15% of a three-system stitched export being unusable is tolerable
-        and is reported back to CloudNova. Above that the export itself is
+        and is reported back to the client. Above that the export itself is
         suspect and no revenue figure should be published from it.
 
     - id: DQ04

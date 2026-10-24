@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# CloudNova revenue intelligence -- EVAL CASES
+# the client revenue intelligence -- EVAL CASES
 # ---------------------------------------------------------------------------
 # Nine cases, seeded from the six stakeholder questions in
 # data/BUSINESS_CONTEXT.md. `python evals/run_evals.py` builds the pipeline
@@ -29,7 +29,7 @@
 # "the pending/failed count equals a direct SQL count".
 #
 # Where an EXACT number is asserted it was taken from a real run of this
-# pipeline against data/cloudnova_invoices.csv (5125 raw rows -> 4616 clean,
+# pipeline against data/invoices.csv (5125 raw rows -> 4616 clean,
 # 396 quarantined), and each exact figure is asserted ALONGSIDE a direct SQL
 # recomputation, so a changed dataset surfaces as drift rather than passing
 # quietly.

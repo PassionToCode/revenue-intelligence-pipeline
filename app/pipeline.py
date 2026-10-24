@@ -10,7 +10,7 @@ The layer names and the reasoning behind them:
     clean       typed, normalised, de-duplicated, one row per invoice_id.
     quarantine  rejected rows, each with a NAMED reason. Never deleted:
                 deleting them makes the output look immaculate while concealing
-                that part of CloudNova's business was discarded.
+                that part of the client's business was discarded.
     gold_*      one table per stakeholder question in BUSINESS_CONTEXT.md.
 """
 from __future__ import annotations
@@ -146,7 +146,7 @@ def _clean(con, c: Contract) -> None:
     finance systems move forward (a `paid` record supersedes `pending` for the
     same invoice), then the later invoice_date, then the larger absolute amount
     as a deterministic last resort. This is a BUSINESS decision made by an
-    engineer and CloudNova should ratify it -- see ASSUMPTIONS A2.
+    engineer and the client should ratify it -- see ASSUMPTIONS A2.
     """
     order = " ".join(
         "WHEN %s THEN %d" % ("status_canonical = '%s'" % s, i)

@@ -38,7 +38,7 @@ from .nl import PROVIDERS, ask, detect_provider, load_env_file, print_answer
 from .pipeline import build
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CSV = ROOT / "data" / "cloudnova_invoices.csv"
+DEFAULT_CSV = ROOT / "data" / "invoices.csv"
 
 # The six questions from data/BUSINESS_CONTEXT.md, verbatim in intent.
 DEMO_QUESTIONS = [
@@ -58,9 +58,9 @@ EXIT_BROKEN = 2
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="python -m app",
-        description="CloudNova revenue intelligence: build, gate, ask.")
+        description="the client revenue intelligence: build, gate, ask.")
     p.add_argument("--csv", default=None,
-                   help="input CSV (default data/cloudnova_invoices.csv)")
+                   help="input CSV (default data/invoices.csv)")
     p.add_argument("--ask", default=None, metavar="QUESTION",
                    help="answer one stakeholder question, showing the SQL")
     p.add_argument("--demo", action="store_true",

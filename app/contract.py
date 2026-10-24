@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def contract_path() -> Path:
     """Overridable so a client can point at their own contract without a code change."""
-    return Path(os.environ.get("CLOUDNOVA_CONTRACT", ROOT / "specs" / "contract.yaml"))
+    return Path(os.environ.get("CONTRACT_PATH", ROOT / "specs" / "contract.yaml"))
 
 
 class Contract:

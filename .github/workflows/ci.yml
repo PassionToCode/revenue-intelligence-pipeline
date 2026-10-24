@@ -1,4 +1,4 @@
-# CI for the CloudNova revenue-intelligence pipeline.
+# CI for the the client revenue-intelligence pipeline.
 #
 # Four independent gates; any one of them can fail the build:
 #

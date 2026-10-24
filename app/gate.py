@@ -2,7 +2,7 @@
 """The quality gate: seven checks that decide publish or stop.
 
 Every threshold, comparison and check id is read from specs/contract.yaml via
-`Contract`. Nothing here is hardcoded, so CloudNova's finance lead can loosen a
+`Contract`. Nothing here is hardcoded, so the client's finance lead can loosen a
 threshold by editing the contract -- no developer, no release.
 
 The gate measures COUNTS AND MEASURES ONLY. No row contents ever reach the

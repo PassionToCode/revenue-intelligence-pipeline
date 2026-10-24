@@ -1,4 +1,4 @@
-# SPEC — CloudNova Revenue Intelligence
+# SPEC — the client Revenue Intelligence
 
 **Status:** written before the transforms, and binding on them.
 **Machine-readable twin:** [`specs/contract.yaml`](contract.yaml) (`contract_version: 1.0.0`).
@@ -14,8 +14,8 @@ in this repository and `evals/test_contract_drift.py` exists to make it loud.
 
 ## 1. Problem statement
 
-CloudNova is a B2B SaaS company selling a per-seat workflow product. Finance
-exports its invoice ledger to `data/cloudnova_invoices.csv` — one row per invoice,
+the client is a B2B SaaS company selling a per-seat workflow product. Finance
+exports its invoice ledger to `data/invoices.csv` — one row per invoice,
 `source_rows_expected: 5125` (contract.yaml). The export is stitched together from
 three systems: an old billing tool, a CRM, and a spreadsheet the finance team
 maintains by hand. Nobody has owned data quality, so the file disagrees with
@@ -62,7 +62,7 @@ Stated so that their absence reads as a decision rather than an omission.
    watermark, no change-data-capture, no late-arriving-fact handling.
 4. **Not a reconciliation engine.** Where the stored invoice amount disagrees
    with what the pricing rules imply, the pipeline **reports** the disagreement
-   and does not correct it (§5.4). Choosing which side is wrong is CloudNova's
+   and does not correct it (§5.4). Choosing which side is wrong is the client's
    decision, not an engineer's.
 5. **Not time-series FX.** Rates are the fixed constants in the contract (§5.3).
 6. **Not a customer-facing surface.** No authentication, no multi-tenancy, no PII
@@ -76,7 +76,7 @@ Stated so that their absence reads as a decision rather than an omission.
 
 | Property | Value | Source |
 |---|---|---|
-| Path | `data/cloudnova_invoices.csv` | brief |
+| Path | `data/invoices.csv` | brief |
 | Format | CSV, header row, one row per invoice | `BUSINESS_CONTEXT.md` |
 | Expected rows | 5,125 | `contract.yaml: source_rows_expected` |
 | Grain after cleaning | one row per `invoice_id` | `contract.yaml: grain` |
@@ -159,7 +159,7 @@ cleaned table and lands in `quarantine_invoices` with a named reason.
 `quarantine_invoices` carries **every original source column as text**, plus
 `quarantine_reason` (one of the named reasons in §8) and enough provenance to find
 the row in the delivered file. Rejected rows keep their original text precisely
-because the point of the table is to show CloudNova what was unusable *as
+because the point of the table is to show the client what was unusable *as
 delivered*.
 
 ## 5. Parsing rules
@@ -194,7 +194,7 @@ it: both readings produce a real date that passes every type check. A date parse
 to the wrong day is simply wrong and silent.
 
 **The declared house rule is month-first.** The reasoning, from
-`contract.yaml` §3 and `BUSINESS_CONTEXT.md`: CloudNova is a US SaaS company,
+`contract.yaml` §3 and `BUSINESS_CONTEXT.md`: the client is a US SaaS company,
 US-origin billing exports conventionally write month first, and the rows in the
 file that *are* unambiguous (those with a day component above 12) are consistent
 with a month-first reading. That is circumstantial support for a convention, not
@@ -211,7 +211,7 @@ code defect, and it must be settled by **editing `contract.yaml`** — either by
 inserting `%m-%d-%Y` ahead of `%d-%m-%Y` to make the rule uniformly month-first,
 or by amending the contract comment to state that dash-separated dates are
 day-first by design. It is tracked as Assumption **A1** and must be put to
-CloudNova. It is not resolved by a special case in Python; see §12.2.
+the client. It is not resolved by a special case in Python; see §12.2.
 
 `invoice_date` is mandatory — a row with no parseable invoice date cannot be
 placed in a reporting period, so it is quarantined (`invoice_date_unparseable`).
@@ -279,7 +279,7 @@ figure is obviously the error.
 a record of what was actually billed and, for `paid` rows, what the customer
 actually paid. The pricing rules are a model of what *should* have been billed;
 they do not know about mid-term seat changes, proration, negotiated one-offs or
-credits. Recomputing revenue from the model would quietly replace CloudNova's
+credits. Recomputing revenue from the model would quietly replace the client's
 books with an engineer's reconstruction of them.
 
 So `amount_expected_usd` is computed and carried **as a diagnostic only** and is
@@ -342,7 +342,7 @@ net_recognised_revenue_usd = SUM(amount_usd)
 Refunded amounts are already negative, so the sum nets them. Gross paid revenue
 and total refunds are each also reported, so the netting is visible rather than
 assumed. Gate check DQ06 reconciles this sum against the gold table to the cent.
-Refunds **net** rather than being excluded because CloudNova gave the money back:
+Refunds **net** rather than being excluded because the client gave the money back:
 revenue that was returned is not revenue. Assumption **A5**.
 
 ## 6. Normalisation tables
@@ -375,7 +375,7 @@ yearly, year
 reason. This is the rule that protects the revenue number: a status spelling the
 contract has not seen must never be bucketed into `paid` by a default branch or a
 fuzzy match, because the failure mode is silent revenue inflation that nothing
-downstream can detect. A new spelling is cheap to fix — CloudNova's finance lead
+downstream can detect. A new spelling is cheap to fix — the client's finance lead
 adds one word to `contract.yaml` and re-runs. A wrongly-recognised invoice is not.
 
 ## 7. De-duplication
@@ -403,13 +403,13 @@ forward through a lifecycle: an invoice goes from `pending` to `paid`, not back.
 When two systems disagree, the record showing the later lifecycle stage is
 ordinarily the more recently updated one, and the system still saying `pending` is
 ordinarily the one that has not caught up. That is a reasonable inference and it is
-not a fact about CloudNova's systems. A plausible alternative — "the billing tool
+not a fact about the client's systems. A plausible alternative — "the billing tool
 is authoritative, always" — would produce a different revenue number, and the
 difference is real money.
 
 So this is recorded as **a business decision currently being made by an engineer**
-(Assumption **A2**), with a specific question for CloudNova in
-`ASSUMPTIONS.md`. The ordering is declared in `contract.yaml`, so when CloudNova
+(Assumption **A2**), with a specific question for the client in
+`ASSUMPTIONS.md`. The ordering is declared in `contract.yaml`, so when the client
 rules differently, the fix is one list in one YAML file.
 
 ## 8. Quarantine policy
@@ -446,7 +446,7 @@ useful things:
    `out/_dq_report.json` publishes, so the size of the gap is a stated number
    rather than an unknown.
 2. A **reason breakdown**, which is actionable upstream feedback: "412 rows
-   carried a status spelling the contract does not know" tells CloudNova exactly
+   carried a status spelling the contract does not know" tells the client exactly
    what to fix in which source system.
 3. The **original text of each rejected row**, so a human can look and adjudicate.
 
@@ -536,7 +536,7 @@ published number — it stops the publish.
 |---|---|---|---|
 | **DQ01** | `raw_row_count` | `>= 1` | An empty export is a delivery failure, not an empty result. Reporting "$0 revenue" from a zero-byte file is the worst possible silent failure. |
 | **DQ02** | `clean_row_count` | `>= 1` | Everything quarantined means the contract no longer matches the source — a schema change upstream, not a data problem. |
-| **DQ03** | `quarantine_rate` | `<= 0.15` | Up to 15% of a three-system stitched export being unusable is tolerable *and is reported back to CloudNova*. Above that the export itself is suspect and no revenue figure should be published from it. |
+| **DQ03** | `quarantine_rate` | `<= 0.15` | Up to 15% of a three-system stitched export being unusable is tolerable *and is reported back to the client*. Above that the export itself is suspect and no revenue figure should be published from it. |
 | **DQ04** | `duplicate_rate` | `<= 0.10` | 124 duplicate ids in 5,125 rows is ~2.4%. A jump to 10%+ is the signature of an extract window that overlapped, i.e. the same period exported twice — a delivery error that would inflate revenue. |
 | **DQ05** | `clean_pk_duplicate_count` | `== 0` | The cleaned grain is one row per `invoice_id`. Non-negotiable: a duplicated key double-counts money. |
 | **DQ06** | `revenue_reconciliation_abs_diff` | `<= 0.01` | Recognised revenue summed from the cleaned table must equal the gold revenue table **to the cent**. This is the check that catches a lost filter or a join fan-out — the class of bug that survives code review and is then found by the client's finance team. One cent of tolerance covers decimal rounding, nothing more. |
@@ -602,7 +602,7 @@ rates, status spellings, plan prices, date formats, the de-duplication precedenc
 order and the quarantine tests all live there. This document explains *why* each
 value is what it is — which is what makes the contract safe to change.
 
-Commercially that split is the point. CloudNova's finance lead can add a status
+Commercially that split is the point. the client's finance lead can add a status
 spelling, correct an FX rate or loosen a quality threshold by editing one YAML
 file — no developer, no code change, no release.
 

@@ -1,9 +1,33 @@
-# CloudNova Revenue Intelligence
+# Revenue Intelligence Pipeline
 
-**Ask questions about CloudNova's revenue and customers in plain English, and be
+**Ask questions about invoice revenue and customers in plain English, and be
 able to check the answer.**
 
-CloudNova's finance team exports its invoice ledger to a single CSV — about 5,125
+> ### A note on the data — deliberately not committed
+>
+> **The supplied dataset and the business-context briefing are not in this
+> repository, and that is on purpose.** The export contains account names,
+> billing contact email addresses and per-customer revenue. Even in a sample
+> that is personally identifiable information and commercially sensitive, and a
+> public repository is the wrong place for it.
+>
+> The client's name has also been kept out of the code, the specification and
+> this README for the same reason.
+>
+> **To run it, drop the two files in yourself:**
+>
+> | Put this file here | What it is |
+> |---|---|
+> | `data/invoices.csv` | the invoice export |
+> | `data/BUSINESS_CONTEXT.md` | the business briefing (reference only — the rules it describes are already encoded in `specs/contract.yaml`) |
+>
+> `.gitignore` excludes `data/*.csv` so the data cannot be committed by accident.
+> Everything else — the contract, the pipeline, the evals, the CI — is here and
+> runs as soon as the CSV is in place.
+>
+> The row counts and figures quoted below were measured on the supplied export.
+
+The finance team exports its invoice ledger to a single CSV — about 5,125
 rows, stitched together from three systems that disagree with each other: an old
 billing tool, a CRM, and a spreadsheet maintained by hand. The same invoice shows
 up twice with two different statuses. Dates arrive in five different formats.
@@ -87,7 +111,7 @@ what was asked.
 
 ```mermaid
 flowchart TD
-    CSV["data/cloudnova_invoices.csv<br/>~5,125 rows, 3 source systems"]
+    CSV["data/invoices.csv<br/>~5,125 rows, 3 source systems"]
     CONTRACT["specs/contract.yaml<br/>prices, FX, spellings, thresholds"]
 
     CSV --> RAW["<b>raw</b><br/>every column as text<br/>nothing coerced"]
@@ -135,7 +159,7 @@ review and is then found by the client's finance team.
 questions, runs the reviewed query, and prints the answer with the SQL.
 
 All of the business logic — prices, FX rates, status spellings, quality thresholds
-— lives in `specs/contract.yaml`, which the code reads at run time. CloudNova's
+— lives in `specs/contract.yaml`, which the code reads at run time. the client's
 finance lead can add a status spelling or correct an FX rate by editing that file.
 No developer, no release.
 
@@ -173,7 +197,7 @@ the code and the contract ever disagree.
 
 **Rejected rows are kept, with a named reason, never deleted.** Dropping bad rows
 would make this output look immaculate while quietly discarding part of
-CloudNova's business — a perfectly typed table, every check green, and some
+the client's business — a perfectly typed table, every check green, and some
 unknown number of invoices simply missing. Keeping them turns an invisible loss
 into a published number, an actionable breakdown by reason ("412 rows carried a
 status spelling we don't know"), and the original text of each row for a human to
@@ -188,7 +212,7 @@ status spelling the contract has not seen is quarantined, because the failure mo
 of guessing is silent revenue inflation that nothing downstream can detect.
 
 **Revenue comes from the stored invoice amount; MRR comes from the pricing rules.**
-A deliberate asymmetry. Revenue has to match CloudNova's books, so the amount as
+A deliberate asymmetry. Revenue has to match the client's books, so the amount as
 billed stands. MRR has to be comparable across billing cycles, so it is derived
 from list price and seats. See the fourth limitation below for what happens when
 the two disagree.
@@ -230,7 +254,7 @@ follow-up question. The honest cost is that the system is narrower than the phra
 
 **2. Ambiguous dates are a documented guess, and the gate cannot catch a wrong
 one.** A value like `05-01-2024` is a valid date read either way — 1 May or 5
-January. Month-first is assumed, on the grounds that CloudNova is a US company and
+January. Month-first is assumed, on the grounds that the client is a US company and
 the file's unambiguous rows are consistent with it. **That is a judgement call, not
 a fact.** No validation can detect a date that parses to the wrong day: both
 readings produce a real date that passes every type check. Affected invoices can
@@ -245,7 +269,7 @@ engineer.** About 124 invoice ids (roughly 2.4% of rows) appear more than once,
 and some disagree about status or amount. The rule applied is that a `paid` record
 beats a `pending` one for the same invoice, on the reasoning that payment status
 moves forward and the system still saying `pending` has not caught up. That is an
-inference, not a documented fact about CloudNova's systems. **CloudNova should
+inference, not a documented fact about the client's systems. **the client should
 ratify it**, because the alternative rule — "the billing tool is always
 authoritative" — is equally defensible and produces a different revenue figure.
 
@@ -258,7 +282,7 @@ obviously the error — the stored amount may include proration or a negotiated
 adjustment the formula knows nothing about. The pipeline treats **the stored
 amount as the source of truth for revenue** and uses the pricing rules only for
 MRR. The mismatch is **reported, not silently reconciled**; quietly "fixing" it
-would mean replacing CloudNova's books with our reconstruction of them.
+would mean replacing the client's books with our reconstruction of them.
 
 **5. FX rates are fixed constants, not time-series rates.** `EUR→USD 1.08` and
 `GBP→USD 1.27`, taken from the brief, applied to every invoice regardless of date.
@@ -275,7 +299,7 @@ plan, seats, CSAT and the churn flag live on every invoice row and change over
 time, so per-account tables take the latest invoice as the account's current
 state. An account that downgraded is therefore counted entirely at its new plan,
 which affects the Enterprise-versus-Starter churn comparison. A subscription table
-— if CloudNova has one — would replace this assumption with a fact.
+— if the client has one — would replace this assumption with a fact.
 
 **8. Quarantined rows are excluded from every reported figure.** By design, and
 the rate is published in `out/_dq_report.json` and gate-checked at 15%. But it
@@ -283,7 +307,7 @@ does mean every number here is "of the invoices we could read", and that caveat
 belongs on the figure wherever it is quoted.
 
 All ten judgement calls, each with what changes if it is wrong and the specific
-question to put to CloudNova, are in
+question to put to the client, are in
 [`specs/ASSUMPTIONS.md`](specs/ASSUMPTIONS.md).
 
 ### Two real defects this caught, and how
@@ -341,7 +365,7 @@ half-done. That ordering is itself the judgement being offered.
    always agree with what the pricing rules imply (see limitation 4). The stored
    amount is treated as the source of truth for revenue and the pricing rules are
    used only for MRR, with the gap reported rather than closed. Closing it
-   properly is **a conversation with CloudNova's finance lead, not a code
+   properly is **a conversation with the client's finance lead, not a code
    change** — which is why no amount of extra engineering time would have
    finished it.
 
@@ -362,7 +386,7 @@ half-done. That ordering is itself the judgement being offered.
 
 In priority order — what buys the most trust per hour.
 
-1. **Take the open questions in `ASSUMPTIONS.md` to CloudNova's finance lead.**
+1. **Take the open questions in `ASSUMPTIONS.md` to the client's finance lead.**
    Three of them — the duplicate tie-break, the amount-versus-pricing mismatch, and
    the ambiguous dates — change the revenue figure. Thirty minutes with the right
    person is worth more than any further engineering, and none of it can be
@@ -371,7 +395,7 @@ In priority order — what buys the most trust per hour.
    how many invoices are actually affected by the ambiguity, with the revenue each
    reading would attribute to each year. Right now the limitation is stated
    qualitatively; it should be stated as a dollar amount.
-3. **Publish the amount-versus-pricing mismatches as a report CloudNova can
+3. **Publish the amount-versus-pricing mismatches as a report the client can
    work.** The diagnostic is already computed on every row. The missing piece is a
    ranked list — biggest discrepancies first — that finance can review. That is
    likely the most commercially valuable artefact in the whole repository, because
@@ -388,7 +412,7 @@ In priority order — what buys the most trust per hour.
    duplicate won, which rules fired — so that any figure can be traced back to the
    delivered file in one query rather than by re-reasoning.
 8. **Trend the data-quality report over runs.** One run tells you the current
-   quarantine rate; a series tells you whether CloudNova's source systems are
+   quarantine rate; a series tells you whether the client's source systems are
    getting better or worse, which is the question their engineering team actually
    needs answered.
 
@@ -400,13 +424,13 @@ In priority order — what buys the most trust per hour.
 app/                     the pipeline and the question layer
 data/
   BUSINESS_CONTEXT.md    the customer briefing: pricing rules, known dirt, the six questions
-  cloudnova_invoices.csv the delivered export
+  invoices.csv the delivered export
 docs/architecture.md     the diagram and a walk-through of the data flow
 evals/                   the eval harness, including proof the quality gate fails when it should
 specs/
   SPEC.md                the spec: rules, schema, thresholds, and the reasoning behind each
   contract.yaml          the machine-readable rules the code reads at run time
-  ASSUMPTIONS.md         every judgement call, what changes if it is wrong, what to ask CloudNova
+  ASSUMPTIONS.md         every judgement call, what changes if it is wrong, what to ask the client
 .claude/CLAUDE.md        how the AI assistant was steered on this build
 out/                     generated: the DuckDB database and _dq_report.json (git-ignored)
 ```

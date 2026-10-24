@@ -43,7 +43,7 @@ from app.gate import run_gate  # noqa: E402
 from app.pipeline import build  # noqa: E402
 
 CONTRACT_PATH = ROOT / "specs" / "contract.yaml"
-CSV_PATH = ROOT / "data" / "cloudnova_invoices.csv"
+CSV_PATH = ROOT / "data" / "invoices.csv"
 APP_DIR = ROOT / "app"
 
 

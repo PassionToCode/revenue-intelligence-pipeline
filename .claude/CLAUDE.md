@@ -1,4 +1,4 @@
-# CLAUDE.md — CloudNova Revenue Intelligence
+# CLAUDE.md — Revenue Intelligence Pipeline
 
 How the AI assistant is steered on **this** build. These are working rules for
 anyone — human or model — writing code in this repository.
@@ -32,7 +32,7 @@ No price, FX rate, threshold, enum, status spelling, date format, or
 de-duplication precedence order appears as a literal in a `.py` file. Each is read
 from `specs/contract.yaml`.
 
-The test: **could CloudNova's finance lead change this without a developer?** If
+The test: **could the client's finance lead change this without a developer?** If
 the answer should be yes and the value is in Python, that is a defect.
 
 A hardcoded `0.15` or a `if status == 'paid'` inside a transform is the specific
@@ -129,7 +129,7 @@ commented-out placeholder in `.env.example`.
 
 ## 9. Plain language in the README, because a finance lead reads it
 
-The reader of `README.md` is CloudNova's finance lead, not an engineer. They
+The reader of `README.md` is the client's finance lead, not an engineer. They
 should understand what this does and why in about three minutes.
 
 - Expand a term the first time it appears. Say what a number *buys* or *means*,

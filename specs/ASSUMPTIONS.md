@@ -3,12 +3,12 @@
 Every judgement call the pipeline makes that the data could not settle on its own.
 
 The format is deliberate. For each assumption: **what was assumed**, **why**,
-**what changes if it is wrong**, and **the question to put to CloudNova**. The
+**what changes if it is wrong**, and **the question to put to the client**. The
 last column is the useful one — an assumption without a question attached is just
 a guess with better formatting.
 
 These are decisions an engineer made because the work could not proceed without
-them. They are not CloudNova's decisions yet. Each one is declared in
+them. They are not the client's decisions yet. Each one is declared in
 `specs/contract.yaml`, so ratifying or overturning any of them is a one-line edit
 to a YAML file and a re-run — not a code change.
 
@@ -21,7 +21,7 @@ the month-first reading is the declared house rule: 1 May 2024, not 5 January
 2024. `specs/contract.yaml: date_formats` holds the ordered list of formats; the
 first one that parses a value wins.
 
-**Why.** CloudNova is a US SaaS company and US-origin billing exports
+**Why.** the client is a US SaaS company and US-origin billing exports
 conventionally write the month first. The rows in the delivered file that are
 *not* ambiguous — those with a day component above 12 — are consistent with a
 month-first reading. `data/BUSINESS_CONTEXT.md` names these dates as genuinely
@@ -42,7 +42,7 @@ precisely the values the briefing calls ambiguous. Fix is in `contract.yaml` —
 either insert `%m-%d-%Y` ahead of `%d-%m-%Y`, or amend the comment to state that
 dash-separated dates are day-first by design.
 
-**Ask CloudNova.** Which source system emits the dash-separated dates, and what
+**Ask the client.** Which source system emits the dash-separated dates, and what
 locale convention does that system use? If any single ambiguous invoice can be
 confirmed against the billing tool, that settles the whole class — and if the
 source systems differ from one another, the rule has to become per-source rather
@@ -65,7 +65,7 @@ saying `pending` is ordinarily the one that has not caught up.
 
 **What changes if it is wrong.** Revenue moves, and by a real amount. If the
 stale system is in fact the one claiming `paid`, the pipeline recognises revenue
-CloudNova never collected. The opposite rule — "the billing tool is always
+the client never collected. The opposite rule — "the billing tool is always
 authoritative" — is equally defensible on the evidence available here and would
 produce a different Q1 revenue figure.
 
@@ -73,7 +73,7 @@ produce a different Q1 revenue figure.
 single assumption in this file most in need of ratification, because the output is
 money in a revenue report.
 
-**Ask CloudNova.** Which of the three source systems is the system of record for
+**Ask the client.** Which of the three source systems is the system of record for
 payment status? Is there an updated-at or last-modified timestamp on either side
 that we are not seeing in the export — because that would replace this inference
 with a fact. And does finance already have a documented rule for this conflict?
@@ -90,7 +90,7 @@ stored amount stands.
 **Why.** An invoice records what was actually billed, and for a `paid` row, what
 the customer actually paid. The pricing rules are a model of what should have been
 billed; they know nothing about proration, mid-term seat changes, negotiated
-one-offs or credits. Recomputing revenue from the model would replace CloudNova's
+one-offs or credits. Recomputing revenue from the model would replace the client's
 books with an engineer's reconstruction of them.
 
 **The disagreement is real and observable.** Row 1 of the delivered file is a
@@ -105,7 +105,7 @@ rules were the correct answer all along. The pipeline would need to switch to
 derived amounts — which is a one-line change given that `amount_expected_usd` is
 already computed and carried on every row.
 
-**Ask CloudNova.** For the sample mismatches we report, which figure does finance
+**Ask the client.** For the sample mismatches we report, which figure does finance
 consider correct? Does `amount` include tax, credits, or prorated adjustments that
 the list-price formula is not meant to reproduce? Is `discount_pct` already
 reflected in the stored amount, or applied on top of it?
@@ -132,7 +132,7 @@ stop measuring regional run-rate and start measuring which region happens to buy
 annually. The answer to "which region has the highest average MRR" would flip on
 a billing preference.
 
-**Ask CloudNova.** Confirm this matches how finance already reports MRR. And for
+**Ask the client.** Confirm this matches how finance already reports MRR. And for
 an account that churned part-way through an annual term, should its MRR be
 included at full value, pro-rated, or dropped — the current rule includes it at
 full value.
@@ -145,7 +145,7 @@ full value.
 recognised revenue. They are kept in the cleaned table and excluded from the
 `paid` population (`contract.yaml: revenue.netting_status`).
 
-**Why.** CloudNova gave the money back. Revenue that was returned is not revenue.
+**Why.** the client gave the money back. Revenue that was returned is not revenue.
 `data/BUSINESS_CONTEXT.md` is explicit: refunded rows *"carry a negative amount
 and should net against revenue."*
 
@@ -153,12 +153,12 @@ and should net against revenue."*
 a separate contra line (a common and perfectly legitimate presentation), the Q1
 headline figure would be **higher** than what this pipeline reports, by the full
 refund total. The two presentations are not comparable, so a mismatch here would
-make the deliverable look wrong against CloudNova's own books even though the
+make the deliverable look wrong against the client's own books even though the
 arithmetic is sound. To make this visible rather than buried, the gold revenue
 table reports gross paid revenue, total refunds and the net figure as three
 separate columns.
 
-**Ask CloudNova.** Does the headline revenue number finance publishes net refunds
+**Ask the client.** Does the headline revenue number finance publishes net refunds
 inside the period, or in the period the refund was issued? A refund in March
 against a January invoice lands in March under this pipeline.
 
@@ -183,7 +183,7 @@ unhappy" in one of the source systems, the Q5 flag under-reports unhappy account
 The count of unknowns is reported on the table precisely so that the size of the
 blind spot is visible rather than guessed at.
 
-**Ask CloudNova.** Does a blank CSAT mean "never surveyed", "declined to answer",
+**Ask the client.** Does a blank CSAT mean "never surveyed", "declined to answer",
 or "the field was lost in the stitch between systems"? Only the third makes it
 recoverable, and from a different source.
 
@@ -206,7 +206,7 @@ mis-read large invoice can visibly distort the Q1 figure and the Q5 top-accounts
 ranking. The expected-amount diagnostic (A3) is the available check: an invoice
 that is 100× its expected price will show up there.
 
-**Ask CloudNova.** Which source system emits amounts without cents, and does it
+**Ask the client.** Which source system emits amounts without cents, and does it
 store money as an integer number of cents?
 
 ---
@@ -227,7 +227,7 @@ the wrong rate — up to a 27% error on a GBP amount labelled as USD, in either
 direction. Revenue totals are affected directly, and the error is invisible in the
 output because the result is still a plausible dollar figure.
 
-**Ask CloudNova.** Should we fail the run when the embedded code and the
+**Ask the client.** Should we fail the run when the embedded code and the
 `currency` column disagree, rather than silently preferring one? Our
 recommendation is to treat that disagreement as a quarantine reason, because a
 row that contradicts itself about its own currency is not a row we should be
@@ -251,7 +251,7 @@ general text-to-SQL path is needed — with its own guardrails, a visible query,
 an accuracy figure measured on a held-out question set before anyone is invited to
 rely on it. `.env.example` reserves the key for that path; it is off by default.
 
-**Ask CloudNova.** Beyond these six, what do you actually ask in a normal month?
+**Ask the client.** Beyond these six, what do you actually ask in a normal month?
 If the answer is "a dozen variations on these six", the fixed-intent design is
 correct and the intent list just needs extending. If it is genuinely open-ended,
 that is a different build and should be scoped as one.
@@ -285,7 +285,7 @@ the de-duplication tie-break (A2) also uses `invoice_date`. The three assumption
 are not independent, and that is worth knowing before overturning any one of them
 in isolation.
 
-**Ask CloudNova.** Is there a subscription or entitlement table — separate from
+**Ask the client.** Is there a subscription or entitlement table — separate from
 the invoice ledger — that states each account's *current* plan and seat count?
 That table would replace this assumption with a fact and would improve Q2 and Q4
 more than any other single input.

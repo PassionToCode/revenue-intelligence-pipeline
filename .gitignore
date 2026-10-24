@@ -1,13 +1,10 @@
-# Secrets — never committed. Copy .env.example to .env locally if needed.
-.env
-
-# Generated output: the DuckDB database and _dq_report.json
 out/
-
-# Python
 __pycache__/
 *.pyc
 .venv/
-
-# OS
+.env
 .DS_Store
+
+# Client data is NOT committed. See README "A note on the data".
+data/*
+!data/.gitkeep
